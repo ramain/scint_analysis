@@ -6,6 +6,7 @@ import glob
 import numpy as np
 import astropy.units as u
 from astropy.time import Time
+from pulsar.predictor import Polyco
 from mpi4py import MPI
 
 comm = MPI.COMM_WORLD
@@ -57,7 +58,7 @@ def rfi_filter_power(power, t0):
 
     for peak in peaks:
         tsr = t0 + tsamp * peak
-        f.writelines('time={0} snr={1}\n'.format(tsr.isot, sn[peak]))
+        f.writelines('{0} {1} {2}\n'.format(tsr.isot, sn[peak], phase))
         
         if writeGP == 1:
             pulse = power[peak-2:peak+3,:,(0,3)].sum(-1).sum(0)
@@ -74,10 +75,12 @@ if __name__ == '__main__':
     files = np.array(glob.glob('arochime*waterfall*'))
     nbin = len(files) // size
     files = files[0:nbin*size].reshape(size, -1)
+    psr_polyco = Polyco('data/polycob0531+21_aro.dat')    
 
     for i in xrange(files.shape[-1]):
         obs = files[rank,i]
         t0 = Time(obs.split('_')[-1].split('+')[0], format='isot', scale='utc')
+        phase_pol = psr_polyco.phasepol(t0)
         print("Rank {0} running pulse finder on {1} ({2}/{3})"
               .format(rank,t0,i,files.shape[-1]))
 

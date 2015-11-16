@@ -6,6 +6,7 @@ import numpy as np
 import astropy.units as u
 from astropy.time import Time
 import matplotlib.pyplot as plt
+from pulsar.predictor import Polyco
 
 MAX_RMS = 2. # max RMS of frequency channels for RFI filter
 tsamp = 2.56e-4 * u.second # timestep in seconds
@@ -28,7 +29,7 @@ def rfi_filter_raw(raw):
     return raw, ok
 
 
-def rfi_filter_power(power, t0):
+def rfi_filter_power(power, t0, phase_pol):
 
     # Detect and store giant pulses in each block through simple S/N test
     if power.shape[-1] == 4:
@@ -49,10 +50,10 @@ def rfi_filter_power(power, t0):
     peaks = peaks[pdiff != 1]
 
     f = open('giant_pulses.txt', 'a')
-
     for peak in peaks:
         tsr = t0 + tsamp * peak
-        f.writelines('time={0} snr={1}\n'.format(tsr.isot, sn[peak]))
+        phase = np.remainder(phase_pol(tsr.mjd), 1)
+        f.writelines('time={0} snr={1} phase={2}\n'.format(tsr.isot, sn[peak], phase))
 
         if sn[peak] >= 50:
             print('\nBright pulse detected!!!  t={0} with S/N={1}'.format(tsr.isot, sn[peak]) )
@@ -66,13 +67,16 @@ if __name__ == '__main__':
 
     t0 = Time(sys.argv[1].split('_')[-1].split('+')[0], format='isot', scale='utc')
 
+    psr_polyco = Polyco(sys.argv[2])    
+    phase_pol = psr_polyco.phasepol(t0)
+
     # Remove edges of waterfall which are lost to de-dispersion
     w=w[buff:-3*buff]
     # Quick workaround to ensure times are still correct
     t0 += buff*tsamp
 
     w, ok = rfi_filter_raw(w)
-    w, sn = rfi_filter_power(w, t0)
+    w, sn = rfi_filter_power(w, t0, phase_pol)
     plt.plot(sn)
     plt.xlabel('time')
     plt.ylabel('intensity')
