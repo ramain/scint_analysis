@@ -13,7 +13,7 @@ comm = MPI.COMM_WORLD
 size = comm.Get_size()
 rank = comm.Get_rank()
 
-MAX_RMS = 2. # max RMS of frequency channels for RFI filter
+MAX_RMS = 1.5 # max RMS of frequency channels for RFI filter
 tsamp = 2.56e-4 * u.second # timestep in seconds
 thresh = 6. # detection threshold
 buff = 1100 # bins lost to dedispersion at start of waterfall
@@ -34,7 +34,7 @@ def rfi_filter_raw(raw):
     raw *= ok
     return raw, ok
 
-def rfi_filter_power(power, t0):
+def rfi_filter_power(power, t0, phase_pol):
 
     # Detect and store giant pulses in each block through simple S/N test
     if power.shape[-1] == 4:
@@ -58,11 +58,15 @@ def rfi_filter_power(power, t0):
 
     for peak in peaks:
         tsr = t0 + tsamp * peak
+        phase = np.remainder(phase_pol(tsr.mjd), 1)
         f.writelines('{0} {1} {2}\n'.format(tsr.isot, sn[peak], phase))
-        
+
         if writeGP == 1:
-            pulse = power[peak-2:peak+3,:,(0,3)].sum(-1).sum(0)
-            np.save('/scratch/m/mhvk/ramain/ARO-GPs/GP{0}'.format(tsr),pulse)
+            if peak > 20:
+                pulse = power[peak] - power[peak-20:peak-2,:].mean(axis=0)
+            else:
+                pulse = power[peak] - power[peak+2:peak+20,:].mean(axis=0)
+            np.save('/scratch/m/mhvk/ramain/ARO-GPs/GP{0}'.format(tsr.isot),pulse)
 
         if sn[peak] >= 100:
             print('Bright pulse detected!!!  t={0} with S/N={1}'.format(tsr.isot, sn[peak]) )
@@ -72,10 +76,11 @@ def rfi_filter_power(power, t0):
     return power, sn
 
 if __name__ == '__main__':
-    files = np.array(glob.glob('arochime*waterfall*'))
+    
+    files = np.array(glob.glob('/scratch/m/mhvk/ramain/waterfalls/arochime*waterfall*'))
     nbin = len(files) // size
     files = files[0:nbin*size].reshape(size, -1)
-    psr_polyco = Polyco('data/polycob0531+21_aro.dat')    
+    psr_polyco = Polyco('/home/m/mhvk/ramain/trials/crab-aro/data/polycob0531+21_aro.dat')    
 
     for i in xrange(files.shape[-1]):
         obs = files[rank,i]
@@ -85,9 +90,10 @@ if __name__ == '__main__':
               .format(rank,t0,i,files.shape[-1]))
 
         w = np.load(obs)
-        #Remove edges of waterfall which are lost to de-dispersion
+
+        # Remove edges of waterfall which are lost to de-dispersion
         w=w[buff:-3*buff]
         t0 += buff*tsamp
 
         w, ok = rfi_filter_raw(w)
-        w, sn = rfi_filter_power(w, t0)
+        w, sn = rfi_filter_power(w, t0, phase_pol)
