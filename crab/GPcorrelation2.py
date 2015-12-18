@@ -9,11 +9,16 @@ from astropy.time import Time
 
 GPlist = np.loadtxt('/home/ramain/packages/scint_analysis/crab/data/gp_sorted.txt', dtype='string').T
 
+PulseMean = np.load('data/PulseRespFull.npy')
+# mask for bad frequencies
+mask = np.load('data/mask.npy')
+
 GPrange = slice(0,77700)
-frange = slice(128,896)
+frange = slice(0,1024)
 SN_cut = 50
 dummy_spec = np.zeros(1024)[frange]
-binning = 20
+dummy_spec = np.delete(dummy_spec, mask)
+binning = 18
 
 Times = Time(GPlist[0], format='isot', scale='utc')[GPrange]
 SN = GPlist[1].astype(float)[GPrange]
@@ -25,7 +30,12 @@ MPSN = SN[abs(phase-0.2) < 0.05] #main pulse
 IPSN = SN[abs(phase-0.6) < 0.05] #interpulse
 
 MPTimes = MPTimes[MPSN > SN_cut] #Only take high S/N pulses
+MPdT = MPTimes[1:] - MPTimes[:-1]
+MPTimes = MPTimes[1:][MPdT > 0*u.s]
+
 IPTimes = IPTimes[IPSN > SN_cut] #Only take high S/N pulses
+IPdT = IPTimes[1:] - IPTimes[:-1]
+IPTimes = IPTimes[1:][IPdT > 0*u.s]
 
 n = len(MPTimes)
 m = len(IPTimes)
@@ -43,13 +53,20 @@ IIdt=np.zeros(m**2)
 for i in xrange(n):
     x = np.load('/home/ramain/data/crab/GPlist-pulses/ARO-GPs/GP{0}.npy'.format(MPTimes[i].isot))
     MP = x[frange,(0,3)].sum(-1)
+    MP = np.delete(MP / PulseMean, mask)
     MPs[i]=(MP-np.mean(MP))/np.std(MP)
 
 # Construct an array with all interpulses in it
 for i in xrange(m):
     x = np.load('/home/ramain/data/crab/GPlist-pulses/ARO-GPs/GP{0}.npy'.format(IPTimes[i].isot))
     IP = x[frange,(0,3)].sum(-1)
+    IP = np.delete(IP / PulseMean, mask)
     IPs[i]=(IP-np.mean(IP))/np.std(IP)
+
+# Final calibrations:
+
+#MPs = np.delete(MPs, mask, axis=1)
+#IPs = np.delete(IPs, mask, axis=1)
 
 for j in xrange(n):
     MP_temp=MPs[j]
@@ -78,7 +95,7 @@ IMcorr = IMcorr[IMdt>0]
 IMdt = IMdt[IMdt>0]
 
 if binning:
-    tbins = np.linspace(-2,4,binning)
+    tbins = np.linspace(-1.5,4.5,binning)
     dt = tbins[1] - tbins[0]
     tbins += dt/2
     MMavg=np.zeros(binning-1)
@@ -100,14 +117,14 @@ if binning:
     IMerr[IMerr<1e-5] = IMavg[IMerr<1e-5]
     IIerr[IIerr<1e-5] = IIavg[IIerr<1e-5]
 
-    plt.errorbar(tbins[:-1], MMavg, yerr=MMerr, fmt='--o',label='Main to Main')
-    plt.errorbar(tbins[:-1], IMavg, yerr=IMerr, fmt='--o',label='Main to Inter')
-    plt.errorbar(tbins[:-1], IIavg, yerr=IIerr, fmt='--o',label='Inter to Inter')
+    plt.errorbar(tbins[:-1], MMavg, yerr=MMerr, xerr=dt/2, fmt='o',label='Main to Main')
+    plt.errorbar(tbins[:-1], IMavg, yerr=IMerr, xerr=dt/2, fmt='o',label='Main to Inter')
+    plt.errorbar(tbins[:-1], IIavg, yerr=IIerr, xerr=dt/2, fmt='o',label='Inter to Inter')
     plt.legend(loc=1)
 
     plt.xlabel('Time [log10(s)]')
     plt.ylabel('Correlation Coefficient')
-    plt.ylim((0.2,1))
+    #plt.ylim((-,1))
 
 else:
     plt.plot(np.log10(MMdt),MMcorr,'bx',label='Main to Main')
@@ -115,10 +132,10 @@ else:
     plt.plot(np.log10(IIdt),IIcorr,'rx',label='Inter to Inter')
 
 
-    plt.legend(loc=4)
+    plt.legend(loc=2)
     plt.xlabel('Time[s]')
     plt.ylabel('Correlation Coefficient')
-    plt.ylim((-0.3,1))
-    plt.xlim((-2,4))
+    plt.ylim((-1,1))
+    #plt.xlim((-2,4))
 
 plt.show()
