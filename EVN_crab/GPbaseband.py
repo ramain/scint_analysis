@@ -17,8 +17,8 @@ thread_ids = [0, 4, 1, 5, 2, 6, 3, 7, 8, 12, 9, 13, 10, 14, 11, 15]
 fedge = 1610.49 * u.MHz + ((np.linspace(0,15,16) % 8) // 2) * 32. * u.MHz
 fref = fedge.mean() + sample_rate / 4
 nchan = 256
-# October DM from JB ephemeris
-dm = 56.7957 * u.pc / u.cm**3
+# October DM from JB ephemeris (1e-2 is by eye correction)
+dm = (56.7957 + 1e-2) * u.pc / u.cm**3
 
 
 class DispersionMeasure(u.Quantity):
