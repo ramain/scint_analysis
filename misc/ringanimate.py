@@ -14,35 +14,35 @@ def rt(t):
     return 160*np.sqrt(t/40)
 
 def b(x,y):
-    r = np.sqrt(x*x+y*y)
+    r = rad(x, y)
     #return 1 + abs( y / r )
     #return ( 1 + abs( y / r ) ) / (1 + r/80)
     return ( 1 + abs( y / r ) ) * (1 - r/200)
 
-def mask(z,x,y,t1,t2):
-    zdummy = 1*z
-    for i in xrange(z.shape[0]):
-        for j in xrange(z.shape[1]):
-            if np.sqrt(x[i]*x[i]+y[j]*y[j]) < rt(t1) :
-                zdummy[i][j] = 0
-            if np.sqrt(x[i]*x[i]+y[j]*y[j]) > rt(t2) :
-                zdummy[i][j] = 0
+def rad(x,y):
+    return np.sqrt(x*x+y*y)
+
+def mask(z,r,t1,t2):
+    zdummy = 1.*z
+    zdummy[r < rt(t1)] = 0
+    zdummy[r > rt(t2)] = 0
     return zdummy
- 
-x = np.linspace(-200,200,100)
-y = np.linspace(-200,200,100)
+
+x = np.linspace(-200,200,1000)
+y = np.linspace(-200,200,1000)
 z = np.array(b(x[:,None],y[None,:]))
+rvalue = np.array(rad(x[:,None],y[None,:]))
 
 fig = plt.figure()
 ims = []
 ax = fig.add_subplot(111)
 
-for i in xrange(70):
-    Z = mask(z,x,y,i,i+1)
+for i in xrange(100):
+    Z = mask(z,rvalue,i,i+1)
     im = ax.imshow(Z,vmin=0,vmax=2,cmap=cm.afmhot)
-    n = ax.annotate('t = %s' % (i+1) ,(80,80), color='w')
+    n = ax.annotate('t = %s microseconds' % (2.5*(i+1)) ,(80,80), color='w')
     ims.append([im, n])
     
-ani = animation.ArtistAnimation(fig, ims, interval=30, blit=False, repeat_delay=1000)
-
+ani = animation.ArtistAnimation(fig, ims, interval=10, blit=False, repeat_delay=1000)
+ani.save('ringamimation.mp4')
 plt.show()
