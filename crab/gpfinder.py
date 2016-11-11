@@ -8,10 +8,11 @@ from astropy.time import Time
 import matplotlib.pyplot as plt
 from pulsar.predictor import Polyco
 
-MAX_RMS = 2. # max RMS of frequency channels for RFI filter
+MAX_RMS = 1.3 # max RMS of frequency channels for RFI filter
 tsamp = 2.56e-4 * u.second # timestep in seconds
 thresh = 6. # detection threshold
-buff = 1100 # bins lost to dedispersion at start of waterfall
+#buff = 1100 # Good for Crab
+buff = 3200 # bins lost to dedispersion at start of waterfall
 
 def rfi_filter_raw(raw):
     #Simple RFI filter which zeros channels with high std dev

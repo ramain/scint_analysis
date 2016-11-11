@@ -15,10 +15,11 @@ mask = np.load('data/mask.npy')
 
 GPrange = slice(0,77700)
 frange = slice(0,1024)
-SN_cut = 50
+SN_cut = 30
 dummy_spec = np.zeros(1024)[frange]
 dummy_spec = np.delete(dummy_spec, mask)
-binning = 18
+binning = 0
+Pbin = 2**5
 
 Times = Time(GPlist[0], format='isot', scale='utc')[GPrange]
 SN = GPlist[1].astype(float)[GPrange]
@@ -53,6 +54,11 @@ IIdt=np.zeros(m**2)
 for i in xrange(n):
     x = np.load('/home/ramain/data/crab/GPlist-pulses/ARO-GPs/GP{0}.npy'.format(MPTimes[i].isot))
     MP = x[frange,(0,3)].sum(-1)
+
+    MPsmooth = MP.reshape(len(MP)/Pbin, Pbin).mean(-1)
+    MPsmooth = np.repeat(MPsmooth, Pbin)
+    #MP -= MPsmooth
+
     MP = np.delete(MP / PulseMean, mask)
     MPs[i]=(MP-np.mean(MP))/np.std(MP)
 
@@ -60,6 +66,11 @@ for i in xrange(n):
 for i in xrange(m):
     x = np.load('/home/ramain/data/crab/GPlist-pulses/ARO-GPs/GP{0}.npy'.format(IPTimes[i].isot))
     IP = x[frange,(0,3)].sum(-1)
+
+    IPsmooth = IP.reshape(len(IP)/Pbin, Pbin).mean(-1)
+    IPsmooth = np.repeat(IPsmooth, Pbin)
+    #IP -= IPsmooth
+
     IP = np.delete(IP / PulseMean, mask)
     IPs[i]=(IP-np.mean(IP))/np.std(IP)
 
