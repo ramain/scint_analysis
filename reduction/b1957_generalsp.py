@@ -5,7 +5,7 @@ import matplotlib.pylab as plt
 import matplotlib.cm as cm
 from astropy.time import Time
 from pulsar.predictor import Polyco
-from reduction.dispersion_measure import DispersionMeasure
+from reduction.dm import DispersionMeasure
 import pyfftw
 
 fn = 'evn/Ar/gp052a_ar_no0016'
