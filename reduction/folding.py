@@ -8,7 +8,7 @@ from pulsar.predictor import Polyco
 from reduction.dm import DispersionMeasure
 from baseband import mark4, mark5b, vdif, dada
 
-def fold(foldtype, fn, polyco, dtype, dm, Tint, tbin, nchan, ngate, size, sample_rate, thread_ids, nIF, fedge):
+def fold(foldtype, fn, tstart, polyco, dtype, Tint, tbin, nchan, ngate, size, **obs):
 
     """
     Folding is done from the position the file is currently in
@@ -49,6 +49,12 @@ def fold(foldtype, fn, polyco, dtype, dm, Tint, tbin, nchan, ngate, size, sample
 
     """
 
+    # Read from obs.conf
+    sample_rate =  float(obs["sample_rate"]) * u.MHz
+    dm = float(obs["dm"]) * u.pc / u.cm**3
+    thread_ids = list(obs["thread_ids"])
+    fedge = np.array(obs["fedge"]).astype('float') * u.MHz
+
     psr_polyco = Polyco(polyco)
 
     # Derived values for folding
@@ -58,11 +64,30 @@ def fold(foldtype, fn, polyco, dtype, dm, Tint, tbin, nchan, ngate, size, sample
     ntbin = int((Tint / tbin).value)
     npol = len(thread_ids)
 
-    print(fref)
+
+    if dtype == 'mark4':
+        fh = mark4.open(fn, mode='rs', decade=2010, ntrack=64,
+                        sample_rate=sample_rate, thread_ids=thread_ids)
+    elif dtype == 'mark5b':
+        nIF = int(obs["nIF"])
+        fh = mark5b.open(fn, mode='rs', nchan=nIF,
+                    sample_rate=sample_rate, thread_ids=thread_ids, ref_mjd=57000)
+    elif dtype == 'vdif':
+        fh = vdif.open(fn, mode='rs', sample_rate=sample_rate)
+
+    t0 = fh.tell('time')
+    if not tstart:
+        tstart = t0
+    else:
+        tstart = Time(tstart)
+
+    print("File begins at {0}, beginning at {1}".format(t0.isot, tstart.isot))
+    offset = int( np.floor( ((tstart - t0) / dt1).decompose() ).value )
+    print("Offset {0} samples from start of file".format(offset))
 
     print("Pre-Calculating De-Dispersion Values")
     dm = DispersionMeasure(dm)
-    dmloss = dm.time_delay(fref-sample_rate//2, fref)
+    dmloss = dm.time_delay(min(fedge), fref)
     samploss = int(np.ceil( (dmloss * sample_rate).decompose() ).value)
 
     # Step is reduced by DM losses, rounded to nearest power of 2
@@ -90,14 +115,6 @@ def fold(foldtype, fn, polyco, dtype, dm, Tint, tbin, nchan, ngate, size, sample
     fft_object_c = pyfftw.FFTW(c1,c2, axes=(1,), direction='FFTW_FORWARD',
                            planning_timelimit=10.0, threads=8 )
 
-    if dtype == 'mark4':
-        fh = mark4.open(fn, mode='rs', decade=2010, ntrack=64,
-                        sample_rate=sample_rate, thread_ids=thread_ids)
-    elif dtype == 'mark5b':
-        fh = mark5b.open(fn, mode='rs', nchan=nIF,
-                    sample_rate=sample_rate, thread_ids=thread_ids, ref_mjd=57000)
-
-
     if foldtype == 'fold':
         foldspec = np.zeros((ntbin, nchan, ngate, npol))
         ic = np.zeros((ntbin, nchan, ngate))
@@ -106,7 +123,7 @@ def fold(foldtype, fn, polyco, dtype, dm, Tint, tbin, nchan, ngate, size, sample
     for i in range(Tstep):
         print('On step {0} of {1}'.format(i, Tstep))
         print('Reading...')
-        fh.seek(step*i)
+        fh.seek(offset + step*i)
         t0 = fh.tell(unit='time')
         if i == 0:
             print('starting at {0}'.format(t0.isot))
@@ -114,7 +131,7 @@ def fold(foldtype, fn, polyco, dtype, dm, Tint, tbin, nchan, ngate, size, sample
         phase_pol = psr_polyco.phasepol(t0)
 
         d = pyfftw.empty_aligned((size,npol), dtype='float32')
-        d[:] = fh.read(size)
+        d[:] = fh.read(size)[...,thread_ids]
 
         print('First FFT')
         ft = fft_object_a(d)
