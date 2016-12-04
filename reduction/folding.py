@@ -50,9 +50,9 @@ def fold(foldtype, fn, tstart, polyco, dtype, Tint, tbin, nchan, ngate, size, **
     """
 
     # Read from obs.conf
-    sample_rate =  float(obs["sample_rate"]) * u.MHz
+    sample_rate =  float(obs["srate"]) * u.MHz
     dm = float(obs["dm"]) * u.pc / u.cm**3
-    thread_ids = list(obs["thread_ids"])
+    thread_ids = list(obs["threads"])
     fedge = np.array(obs["fedge"]).astype('float') * u.MHz
 
     psr_polyco = Polyco(polyco)
