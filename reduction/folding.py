@@ -4,9 +4,10 @@ import astropy.units as u
 from astropy.time import Time
 from pulsar.predictor import Polyco
 from reduction.dm import DispersionMeasure
-from baseband import mark4, mark5b, vdif, dada
+from reduction.ReadDD import ReadDD as RD
+from reduction.PulseDetect import PulseDetect
 
-def fold(foldtype, fn, tstart, polyco, dtype, Tint, tbin, nchan, ngate, size, dedisperse, **obs):
+def fold(foldtype, fn, obsfile, tstart, polyco, dtype, Tint, tbin, nchan, ngate, size, dedisperse, pulsedetect):
 
     """
     Parameters
@@ -35,31 +36,17 @@ def fold(foldtype, fn, tstart, polyco, dtype, Tint, tbin, nchan, ngate, size, de
     **obs: parameters read from obs.conf
     """
 
-    # Read from obs.conf
-    sample_rate =  float(obs["srate"]) * u.MHz
-    dm = float(obs["dm"]) * u.pc / u.cm**3
-    thread_ids = list(obs["threads"])
-    fedge = np.array(obs["fedge"]).astype('float') * u.MHz
+    fh = RD(fname=fn, obsfile=obsfile, size=size)
 
     psr_polyco = Polyco(polyco)
 
     # Derived values for folding
-    dt1 = 1/sample_rate
-    fref = max(fedge) + sample_rate // 2 # Reference to top of band
+    dt1 = fh.dt1
+    sample_rate = fh.sample_rate
     ntbin = int((Tint / tbin).value)
-    npol = len(thread_ids)
+    npol = len(fh.thread_ids)
 
-    if dtype == 'mark4':
-        fh = mark4.open(fn, mode='rs', decade=2010, ntrack=64,
-                        sample_rate=sample_rate, thread_ids=thread_ids)
-    elif dtype == 'mark5b':
-        nIF = int(obs["nIF"])
-        fh = mark5b.open(fn, mode='rs', nchan=nIF,
-                    sample_rate=sample_rate, thread_ids=thread_ids, ref_mjd=57000)
-    elif dtype == 'vdif':
-        fh = vdif.open(fn, mode='rs', sample_rate=sample_rate)
-
-    t0 = fh.tell('time')
+    t0 = fh.fh.tell('time')
     if not tstart:
         tstart = t0
     else:
@@ -69,40 +56,11 @@ def fold(foldtype, fn, tstart, polyco, dtype, Tint, tbin, nchan, ngate, size, de
     offset = int( np.floor( ((tstart - t0) / dt1).decompose() ).value )
     print("Offset {0} samples from start of file".format(offset))
 
-    print("Pre-Calculating De-Dispersion Values")
-    dm = DispersionMeasure(dm)
-    dmloss = dm.time_delay(min(fedge), fref)
-    samploss = int(np.ceil( (dmloss * sample_rate).decompose() ).value)
-
     # Step is reduced by DM losses, rounded to nearest power of 2
-    step = int(size -  2**(np.ceil(np.log2(samploss))))
+    step = fh.step
     Tstep = int(np.ceil( (Tint / (step*dt1)).decompose() ))
 
-    print("{0} and {1} samples lost to de-dispersion".format(dmloss, samploss))
     print("Taking blocks of {0}, steps of {1} samples".format(size, step))
-
-    if dedisperse == 'coherent':
-        print('Planning coherent DD FFT')
-        f = fedge + np.fft.rfftfreq(size, dt1)[:, np.newaxis]
-        dd = dm.phase_factor(f, fref).conj()
-        a = pyfftw.empty_aligned((size,npol), dtype='float32', n=16)
-        b = pyfftw.empty_aligned((size//2+1,npol), dtype='complex64', n=16)
-        fft_object_a = pyfftw.FFTW(a,b, axes=(0,), direction='FFTW_FORWARD',
-                           planning_timelimit=10.0, threads=8 )
-        fft_object_b = pyfftw.FFTW(b,a, axes=(0,), direction='FFTW_BACKWARD', 
-                           planning_timelimit=10.0, threads=8 )
-    
-    elif dedisperse == 'incoherent':
-        f = fedge + np.fft.rfftfreq(2*nchan, dt1)[:, np.newaxis]
-        dm_delay = dm.time_delay(f, fref)
-        dm_sample = np.floor( (dm_delay / (2*nchan*dt1)).decompose()).value.astype('int')
-
-    c1 = pyfftw.empty_aligned((size//(2*nchan), 2*nchan, npol), dtype='float32', n=16)
-    c2 = pyfftw.empty_aligned((size//(2*nchan), nchan+1, npol), dtype='complex64', n=16)
-
-    print("planning FFT for channelization")
-    fft_object_c = pyfftw.FFTW(c1,c2, axes=(1,), direction='FFTW_FORWARD',
-                           planning_timelimit=10.0, threads=8 )
 
     if foldtype == 'fold':
         foldspec = np.zeros((ntbin, nchan, ngate, npol))
@@ -113,37 +71,27 @@ def fold(foldtype, fn, tstart, polyco, dtype, Tint, tbin, nchan, ngate, size, de
         print('On step {0} of {1}'.format(i, Tstep))
         print('Reading...')
         fh.seek(offset + step*i)
-        t0 = fh.tell(unit='time')
+        t0 = fh.fh.tell('time')
         if i == 0:
             print('starting at {0}'.format(t0.isot))
 
         phase_pol = psr_polyco.phasepol(t0)
 
-        data = pyfftw.empty_aligned((size,npol), dtype='float32')
-        data[:] = fh.read(size)[...,thread_ids]
-        
         if dedisperse == 'coherent':
-            print('First FFT')
-            ft = fft_object_a(data)
-            print('Applying De-Dispersion Phases')
-            ft *= dd
-            print('Second FFT')
-            d = pyfftw.empty_aligned((size//2+1,npol), dtype='complex64')
-            d[:] = ft
-            data = fft_object_b(d)
+            data = fh.readCoherent(size)
+            dchan = np.fft.rfft(data.reshape(-1, 2*nchan, npol), axis=1)
+            del data
+        elif dedisperse == 'incoherent':
+            dchan = fh.readIncoherent(size, nchan)
 
-        print('Channelize and form power')
-        dchan = fft_object_c(data.reshape(-1, 2*nchan, npol))
-        if dedisperse == 'incoherent':
-            for chan in range(nchan):
-                for pol in range(npol):
-                    dchan[:,chan,pol] = np.roll(dchan[:,chan,pol], -dm_sample[chan,pol], axis=0)
-
-        power = (np.abs(dchan[:step//(2*nchan)])**2)
+        power = (np.abs(dchan)**2)
         print("Folding")
         tsamp = (2 * nchan / sample_rate).to(u.s)
         tsr = t0 + tsamp * np.arange(power.shape[0])   
-        
+
+        if pulsedetect:
+            PulseDetect(power, tsr, phase_pol)
+
         if foldtype == 'fold':
             phase = (np.remainder(phase_pol(tsr.mjd),1) * ngate).astype('int')
             ibin = np.floor( (ntbin * tsamp * (i * power.shape[0] + np.arange(power.shape[0]) ) // Tint).decompose() ).astype('int')
