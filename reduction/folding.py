@@ -54,13 +54,10 @@ def fold(foldtype, fn, obsfile, tstart, polyco, dtype, Tint, tbin, nchan, ngate,
 
     print("File begins at {0}, beginning at {1}".format(t0.isot, tstart.isot))
     offset = int( np.floor( ((tstart - t0) / dt1).decompose() ).value )
-    print("Offset {0} samples from start of file".format(offset))
 
     # Step is reduced by DM losses, rounded to nearest power of 2
     step = fh.step
     Tstep = int(np.ceil( (Tint / (step*dt1)).decompose() ))
-
-    print("Taking blocks of {0}, steps of {1} samples".format(size, step))
 
     if foldtype == 'fold':
         foldspec = np.zeros((ntbin, nchan, ngate, npol))
