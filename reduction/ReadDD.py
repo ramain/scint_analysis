@@ -1,5 +1,6 @@
 import numpy as np
 import astropy.units as u
+import pyfftw
 from reduction.dm import DispersionMeasure
 from astropy.extern.configobj import configobj
 from baseband import vdif, mark4, mark5b, dada
@@ -70,6 +71,7 @@ class ReadDD:
         self.dmloss = self.dm.time_delay(min(self.fedge), self.fref)
         self.samploss = int(np.ceil( (self.dmloss * self.sample_rate).decompose() ).value)
         self.step = int(size -  2**(np.ceil(np.log2(self.samploss))))
+        self.npol = len(self.thread_ids)
 
         print("{0} and {1} samples lost to de-dispersion".format(self.dmloss, self.samploss))
         print("Taking blocks of {0}, steps of {1} samples".format(self.size, self.step))
@@ -83,6 +85,7 @@ class ReadDD:
 
         if self.dtype == 'vdif':
             self.fh = vdif.open(fname, mode='rs', sample_rate=self.sample_rate)
+
         if self.dtype == 'mark4':
             self.fh = mark4.open(fname, mode='rs', decade=2010, ntrack=self.ntrack,
                                  sample_rate=self.sample_rate, thread_ids=self.thread_ids)
@@ -103,6 +106,7 @@ class ReadDD:
         """
 
         if size != self.size or not 'dd' in self.__dict__ :
+            # Only compute dedispersion phases and fft plans once for given size
             print("Calculating de-dispersion phase factors for size {0}".format(size))
             self.f = self.fedge + self.forder*np.fft.rfftfreq(size, self.dt1)[:, np.newaxis]
             self.dd = self.dm.phase_factor(self.f, self.fref)
@@ -111,14 +115,33 @@ class ReadDD:
                     self.dd[...,j] = np.conj(self.dd[...,j])
             self.size = size
             self.step = int(size -  2**(np.ceil(np.log2(self.samploss))))
+            a = pyfftw.empty_aligned((self.size, self.npol), dtype='float32', n=16)
+            b = pyfftw.empty_aligned((self.size//2+1, self.npol), dtype='complex64', n=16)
+            print("planning FFTs for coherent dedispersion...")
+            self.fft_ts = pyfftw.FFTW(a,b, axes=(0,), direction='FFTW_FORWARD',
+                           planning_timelimit=1.0, threads=8 )
+            print("...")
+            self.ifft_ts = pyfftw.FFTW(b,a, axes=(0,), direction='FFTW_BACKWARD',
+                           planning_timelimit=1.0, threads=8 )
 
-        d = self.fh.read(size)
-        if len(self.thread_ids) < d.shape[-1]:
-            d = d[self.thread_ids]
-        ft = np.fft.rfft(d, axis=0)
+
+        d = pyfftw.empty_aligned((size,self.npol), dtype='float32')
+        #d = self.fh.read(size)
+
+        # need better solution...
+        if self.dtype == 'vdif':
+            d[:] = self.fh.read(size)[self.thread_ids]
+        else:
+            d[:] = self.fh.read(size)
+
+        #ft = np.fft.rfft(d, axis=0)
+        ft = self.fft_ts(d)
         ft *= self.dd
-        d = np.fft.irfft(ft, axis=0)[:self.step]
-        del ft
+
+        dift = pyfftw.empty_aligned((size//2+1,self.npol), dtype='complex64')
+        dift[:] = ft
+        d = self.ifft_ts(dift)
+        #d = np.fft.irfft(ft, axis=0)[:self.step]
         return d
 
     def readIncoherent(self, size=2**25, nchan=512):
