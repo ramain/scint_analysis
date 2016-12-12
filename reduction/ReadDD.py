@@ -66,9 +66,9 @@ class ReadDD:
  
         self.dt1 = 1/self.sample_rate
         self.size = size
-        self.fref = max(self.fedge) + self.sample_rate // 2
         self.f = self.fedge + self.forder*np.fft.rfftfreq(size, self.dt1)[:, np.newaxis]
-        self.dmloss = self.dm.time_delay(min(self.fedge), self.fref)
+        self.fref = np.amax(self.f)
+        self.dmloss = self.dm.time_delay(np.amin(self.f), self.fref)
         self.samploss = int(np.ceil( (self.dmloss * self.sample_rate).decompose() ).value)
         self.step = int(size -  2**(np.ceil(np.log2(self.samploss))))
         self.npol = len(self.thread_ids)

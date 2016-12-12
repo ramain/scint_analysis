@@ -87,7 +87,7 @@ def fold(foldtype, fn, obsfile, tstart, polyco, dtype, Tint, tbin, nchan, ngate,
         tsr = t0 + tsamp * np.arange(power.shape[0])   
 
         if pulsedetect:
-            PulseDetect(power, tsr, phase_pol)
+            PulseDetect(dchan, tsr, phase_pol)
 
         if foldtype == 'fold':
             phase = (np.remainder(phase_pol(tsr.mjd),1) * ngate).astype('int')
