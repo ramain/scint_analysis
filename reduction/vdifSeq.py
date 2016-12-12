@@ -11,6 +11,7 @@ class vdifSeq:
         self.findex = 0
         self.offset = 0
         self.sample_rate = sample_rate
+        self.open()
 
     def open(self):
         self.fh = vdif.open(self.flist[self.findex], 'rs', sample_rate=self.sample_rate)
