@@ -1,25 +1,29 @@
 from baseband import mark5b
+from baseband import vdif
 import numpy as np
 import astropy.units as u
 import matplotlib.pyplot as plt
 from astropy.time import Time
+from pulsar.predictor import Polyco
 
-fn = 'ef_data/ek036a_ef_no0020.m5a'
+#fn = 'ef_data/ek036a_ef_no0020.m5a'
 #t_gp = Time('2015-10-19T02:02:36.763878')
-t_gp = Time('2015-10-19T02:03:12.329898')
-#fn = 'ef_data/ek036a_ef_no0015.m5a'
-#t_gp = Time('2015-10-19T01:23:57.220212')
+#t_gp = Time('2015-10-19T02:03:12.329898')
+tel = 'ef'
+
+fn = 'ef_data/%s/ek036a_%s_no0008.m5a' % (tel, tel)
+t_gp = Time('2015-10-19T00:17:47.415')
+
 size = 2 ** 22
 sample_rate = 32 * u.MHz
 dt1 = 1/sample_rate
-#
 thread_ids = [0, 4, 1, 5, 2, 6, 3, 7, 8, 12, 9, 13, 10, 14, 11, 15]
 fedge = 1610.49 * u.MHz + ((np.linspace(0,15,16) % 8) // 2) * 32. * u.MHz
 fref = fedge.mean() + sample_rate / 4
-nchan = 256
+nchan = 512
 # October DM from JB ephemeris (1e-2 is by eye correction)
 dm = (56.7957 + 1e-2) * u.pc / u.cm**3
-
+#dm = 0
 
 class DispersionMeasure(u.Quantity):
 
@@ -61,12 +65,19 @@ dm = DispersionMeasure(dm)
 
 if __name__ == '__main__':
 
-    fh = mark5b.open(fn, mode='rs', nchan=16,
+    if tel == 'sr' or tel == 'mc':
+        fh = vdif.open(fn, mode='rs', sample_rate=sample_rate)
+    else:
+        fh = mark5b.open(fn, mode='rs', nchan=16,
                     sample_rate=sample_rate, thread_ids=thread_ids, ref_mjd=57000)
     offset_gp = ((t_gp - fh.tell(unit='time')).to(u.s).value *
                  fh.frames_per_second * fh.samples_per_frame)
     fh.seek(int(offset_gp) - size // 2)
     d = fh.read(size)
+    if tel == 'sr' or tel == 't6' or tel =='tr':
+        d = np.roll(d, 8, axis=-1)
+    if tel == 'mc' or tel =='sr':
+        d = d[:,thread_ids]        
     ft = np.fft.rfft(d, axis=0)
     # Second half of IFs have Fedge at top, need to subtract frequencies, 
     # and not conjugate coherent phases
@@ -82,6 +93,9 @@ if __name__ == '__main__':
     # Channels are not in order, and polarizations are separate
     dR = np.concatenate((dchan[:,::-1,8], dchan[...,0], dchan[:,::-1,10], dchan[...,2], dchan[:,::-1,12], dchan[...,4], dchan[:,::-1,14], dchan[...,6]), axis=1)
     dL = np.concatenate((dchan[:,::-1,9], dchan[...,1], dchan[:,::-1,11], dchan[...,3], dchan[:,::-1,13], dchan[...,5], dchan[:,::-1,15], dchan[...,7]), axis=1)
-    plt.ion()
-    plt.imshow((abs(dR)**2 + abs(dL)**2).T, aspect='auto')
 
+    dorder = np.concatenate((dchan[...,0],dchan[...,1],dchan[...,2],dchan[...,3],dchan[...,4],dchan[...,5],dchan[...,6],dchan[...,7],dchan[...,8],dchan[...,9],dchan[...,10],dchan[...,11],dchan[...,12],dchan[...,13],dchan[...,14],dchan[...,15]), axis=1)
+    power = abs(dR)**2 + abs(dL)**2
+    plt.ion()
+    plt.imshow((power).T, aspect='auto')
+ 

@@ -7,7 +7,7 @@ import matplotlib.cm as cm
 
 f_start = 400 # Edge frequency of used frequency range in MHz
 bandwidth = 400 # Bandwidth in MHz
-f_range = slice(0,1024) # Include all frequencies
+f_range = slice(0,1024*16) # Include all frequencies
 pol_select = (0, 3)
 
 def clip(n, sig):
@@ -36,15 +36,17 @@ if __name__ == "__main__":
 
     nall = fall/ic
     ntavg = nall[:, :, :].mean(-1,keepdims=True).mean(axis=0, keepdims=True)
-    nall = nall / ntavg # Divide by time averaged mean to normalize. This puts the intensity in units of Tsys
+    nall = nall / ntavg -1 # Divide by time averaged mean to normalize. This puts the intensity in units of Tsys
 
     # Sum over time and frequency to get the averaged pulse profile, used only to find suitable background gates
     pprof_1D = nall[:,f_range,:].sum(0).sum(0)  
     pmax = np.argmax(pprof_1D)
 
-    # Be careful - the default background ranges can contain pulse fulx 
-    n_back1 = nall[:, f_range, pmax-10:pmax-5].mean(axis=-1, keepdims=True)
-    n_back2 = nall[:, f_range, pmax+15:pmax+25].mean(axis=-1, keepdims=True)
+    # Be careful - the default background ranges can contain pulse flux 
+    #n_back1 = nall[:, f_range, pmax-10:pmax-5].mean(axis=-1, keepdims=True)
+    #n_back2 = nall[:, f_range, pmax+15:pmax+25].mean(axis=-1, keepdims=True)
+    n_back1 = nall[:, f_range, 4:7].mean(axis=-1, keepdims=True)
+    n_back2 = nall[:, f_range, 4:7].mean(axis=-1, keepdims=True)
 
     n_back = (n_back1+n_back2)/2.
     n_clean = (nall[:, f_range, :]-n_back) # Subtract average of background gates
@@ -60,10 +62,10 @@ if __name__ == "__main__":
     #n_clean = n_clean.reshape(n_clean.shape[0], -1, 4).sum(axis=-1)
 
     vmin = n_clean.mean()-2*n_clean.std()
-    vmax = n_clean.mean()+5.*n_clean.std()
+    vmax = n_clean.mean()+4.*n_clean.std()
 
-    plt.imshow(n_clean.T, aspect='auto', cmap=cm.Greys, interpolation='nearest', extent=[0, t_obs/60.0, f_start+f_range.start*bandwidth/fall.shape[1], f_start+f_range.stop*bandwidth/fall.shape[1]], vmax=vmax, vmin=vmin, origin='lower') #plot dynamic spectrum with physical units
-
+    #plt.imshow(n_clean.T, cmap=cm.Greys, interpolation='nearest', aspect='auto', extent=[0, t_obs/60.0, f_start+f_range.start*bandwidth/fall.shape[1], f_start+f_range.stop*bandwidth/fall.shape[1]], vmax=vmax, vmin=vmin, origin='lower') #plot dynamic spectrum with physical units
+    plt.imshow(n_clean.T, cmap=cm.Greys, interpolation='nearest', aspect='auto', vmax=vmax, vmin=vmin, origin='lower') #plot dynamic spectrum with physical units
 
     plt.colorbar()
     plt.xlabel("time [minutes]")

@@ -20,10 +20,11 @@ if __name__ == "__main__":
     else:
         fall = f
 
-    nall = fall/(ic+1e-10)
+    nall = fall/(ic+1e-15)
 
     ntavg = nall[:, :, :].mean(-1,keepdims=True).mean(axis=0, keepdims=True)
     nall = nall / ntavg - 1 #Divide by time averaged mean to normalize. This puts the intensity in units of T 
+    #nall = nall - ntavg
 
     n2 = nall
     #n2 = nall.sum(0)
