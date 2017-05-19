@@ -10,10 +10,10 @@ from pulsar.predictor import Polyco
 #t_gp = Time('2015-10-19T02:02:36.763878')
 #t_gp = Time('2015-10-19T02:03:12.329898')
 tel = 'ef'
-fn = 'datamount/{0}/ek036a_{0}_no0008.m5a'.format(tel)
+fn = 'datamount/{0}/ek036a_{0}_no0002.m5a'.format(tel)
 
-size = 2 ** 23
-step = 32000000 // 4
+size = 2 ** 25
+step = 32000000
 sample_rate = 32 * u.MHz
 dt1 = 1/sample_rate
 thread_ids = [0, 4, 1, 5, 2, 6, 3, 7, 8, 12, 9, 13, 10, 14, 11, 15]
@@ -26,6 +26,19 @@ thresh = 6
 
 # October DM from JB ephemeris (1e-2 is by eye correction)
 dm = (56.7957 + 1e-2) * u.pc / u.cm**3
+
+import pyfftw
+
+print('planning FFT')
+a = pyfftw.empty_aligned((size,16), dtype='float32', n=16)
+b = pyfftw.empty_aligned((size//2+1,16), dtype='complex64', n=16)
+
+print('...')
+fft_object_a = pyfftw.FFTW(a,b, axes=(0,), direction='FFTW_FORWARD',
+                planning_timelimit=10.0, threads=8 )
+print('...')
+fft_object_b = pyfftw.FFTW(b,a, axes=(0,), direction='FFTW_BACKWARD', 
+                planning_timelimit=10.0, threads=8 )
 
 def rfi_filter_power(dL, dR, t0):
 
@@ -45,15 +58,13 @@ def rfi_filter_power(dL, dR, t0):
 
     peaks = np.argwhere(sn > thresh)
 
-    # Remove duplicates caused by pulse duration
-    pdiff = peaks - np.roll(peaks,1)
-    peaks = peaks[pdiff != 1]
-
     f = open('giant_pulses.txt', 'a')
 
     for peak in peaks:
-        tsr = t0 + tsamp * peak
-        f.writelines('time={0} snr={1}\n'.format(tsr.isot, sn[peak]))
+        tsr = t0 + tsamp * peak[0]
+        f.writelines('{0} {1}\n'.format(tsr.isot, sn[peak]))
+        np.save('GPs/LGP%s.npy' % (tsr.isot), dL[peak-50:peak+50])
+        np.save('GPs/RGP%s.npy' % (tsr.isot), dR[peak-50:peak+50])
 
     print('\n{0} Pulses detected'.format(len(peaks)))
     return power, sn
@@ -101,19 +112,33 @@ if __name__ == '__main__':
     fh = mark5b.open(fn, mode='rs', nchan=16, sample_rate=sample_rate,
                      thread_ids=thread_ids, ref_mjd=57000)
 
-    for i in range(1200):
-        print('step %s of %s' % (i, 1200))
+    for i in range(745):
+        print('step %s of %s' % (i, 745))
         fh.seek(i*step)
         t0 = fh.tell("time")
-        d = fh.read(size)
-        ft = np.fft.rfft(d, axis=0)
+        print(t0.isot)
+
+        d = pyfftw.empty_aligned((size,16), dtype='float32')
+        d[:] = fh.read(size)
+        print('First FFT')
+        ft = fft_object_a(d)
+
+        #d = fh.read(size)
+        #ft = np.fft.rfft(d, axis=0)
+
         # Second half of IFs have Fedge at top, need to subtract frequencies, 
         # and not conjugate coherent phases
         f = fedge + np.fft.rfftfreq(d.shape[0], dt1)[:, np.newaxis]
         f[:,8:] = fedge[8:] - np.fft.rfftfreq(d.shape[0], dt1)[:, np.newaxis]
         ft[:,:8] *= dm(f[:,:8], fref, kind='complex').conj()
         ft[:,8:] *= dm(f[:,8:], fref, kind='complex')
-        d = np.fft.irfft(ft, axis=0)
+
+        #d = np.fft.irfft(ft, axis=0)
+
+        d = pyfftw.empty_aligned((size//2+1,16), dtype='complex64')
+        d[:] = ft
+        d = fft_object_b(d)
+
         # Channelize the data
         dchan = np.fft.rfft(d.reshape(-1, 2*nchan, 16), axis=1)
         # Horribly inelegant, but works for now. 
